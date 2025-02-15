@@ -162,11 +162,8 @@ TODO:
 """
 
 import datetime
-import random
-import string
 import time
 
-from ast import literal_eval
 from collections import defaultdict
 
 from beancount.core import data
@@ -174,12 +171,19 @@ from beancount.core import flags
 from beancount_reds_plugins.common import common
 
 DEBUG = 0
-DEFAULT_TOLERANCE = 0.0099
-MATCHING_ID_STRING = "match_id"
-LINK_PREFIX = "ZeroSum."
-random.seed(6)  # arbitrary fixed seed
+DEFAULTS = {
+    'zerosum_accounts': {},
+    'account_name_replace': ('', ''),
+    'tolerance': 0.0099,
+    'match_metadata': False,
+    'match_metadata_name': "match_id",
+    'link_transactions': False,
+    'link_prefix': "ZeroSum.",
+    'id_base': 16,
+    'id_zfill': 14,
+}
 
-__plugins__ = ('zerosum', 'flag_unmatched',)
+__plugins__ = ('zerosum', 'flag_unmatched',)    # TODO: what is this?
 
 
 # replace the account on a given posting with a new account
@@ -257,30 +261,20 @@ def zerosum(entries, options_map, config):  # noqa: C901
                 if p is posting:
                     # Don't match with the same exact posting.
                     continue
-                if (abs(p.units.number + posting.units.number) < tolerance
+                if (abs(p.units.number + posting.units.number) < parsed_cfg['tolerance']
                    and p.account == zs_account):
                     return (p, t)
         return None
-
-    def generate_match_id():
-        '''Generates a random string to be used as the match ID.'''
-        return ''.join(
-            random.choices(string.ascii_letters + string.digits, k=20))
 
     if DEBUG:
         # pr = cProfile.Profile()
         # pr.enable()
         start_time = time.time()
 
-    config_obj = literal_eval(config)  # TODO: error check
-    zs_accounts_list = config_obj.pop('zerosum_accounts', {})
-    (account_name_from, account_name_to) = config_obj.pop('account_name_replace', ('', ''))
-    tolerance = config_obj.pop('tolerance', DEFAULT_TOLERANCE)
-    match_metadata = config_obj.pop('match_metadata', False)
-    match_metadata_name = config_obj.pop('match_metadata_name', MATCHING_ID_STRING)
-    link_transactions = config_obj.pop('link_transactions', False)
-    link_prefix = config_obj.pop('link_prefix', LINK_PREFIX)
+    parsed_cfg = common.parse_config(defaults=DEFAULTS, config=config)
+    (account_name_from, account_name_to) = parsed_cfg['account_name_replace']
 
+    match_ids = common.FormattedUIDs(parsed_cfg['id_base'], parsed_cfg['id_zfill'])
     new_accounts = set()
     zerosum_postings_count = 0
     match_count = 0
@@ -289,17 +283,17 @@ def zerosum(entries, options_map, config):  # noqa: C901
     zerosum_txns_all = defaultdict(list)
     for i, entry in enumerate(entries):
         if isinstance(entry, data.Transaction):
-            if link_transactions and type(entry.links) is frozenset:
+            if parsed_cfg['link_transactions'] and type(entry.links) is frozenset:
                 entry = entry._replace(links=set(entry.links))  # unfreeze links set
                 entries[i] = entry
 
-            for zs_account, _ in zs_accounts_list.items():
+            for zs_account, _ in parsed_cfg['zerosum_accounts'].items():
                 if any(posting.account == zs_account for posting in entry.postings):
                     zerosum_txns_all[zs_account].append(entry)
                     zerosum_postings_count += 1
                     # count doesn't account for multiple matching postings, but is close enough
 
-    for zs_account, (target_account, date_range) in zs_accounts_list.items():
+    for zs_account, (target_account, date_range) in parsed_cfg['zerosum_accounts'].items():
         if not target_account:
             target_account = zs_account.replace(account_name_from, account_name_to)
         zerosum_txns = zerosum_txns_all[zs_account]
@@ -322,15 +316,15 @@ def zerosum(entries, options_map, config):  # noqa: C901
                             account_replace(txn,      posting,  target_account)
                             account_replace(match[1], match[0], target_account)
 
-                            match_id = generate_match_id() if match_metadata or link_transactions else None
+                            match_id = match_ids.get() if parsed_cfg['match_metadata'] or parsed_cfg['link_transactions'] else None
 
-                            if match_metadata:
-                                metadata_update(txn, posting, match_id, match_metadata_name)
-                                metadata_update(match[1], match[0], match_id, match_metadata_name)
+                            if parsed_cfg['match_metadata']:
+                                metadata_update(txn, posting, match_id, parsed_cfg['match_metadata_name'])
+                                metadata_update(match[1], match[0], match_id, parsed_cfg['match_metadata_name'])
 
-                            if link_transactions:
-                                transaction_update(txn, match_id, link_prefix)
-                                transaction_update(match[1], match_id, link_prefix)
+                            if parsed_cfg['link_transactions']:
+                                transaction_update(txn, match_id, parsed_cfg['link_prefix'])
+                                transaction_update(match[1], match_id, parsed_cfg['link_prefix'])
 
                             new_accounts.add(target_account)
                             reprocess = True
@@ -338,7 +332,7 @@ def zerosum(entries, options_map, config):  # noqa: C901
 
     new_open_entries = common.create_open_directives(new_accounts, entries, meta_desc='<zerosum>')
 
-    if link_transactions:
+    if parsed_cfg['link_transactions']:
         for i, entry in enumerate(entries):
             if isinstance(entry, data.Transaction):
                 if len(entry.links) == 0:
@@ -358,7 +352,7 @@ def zerosum(entries, options_map, config):  # noqa: C901
 def flag_unmatched(entries, unused_options_map, config):
     '''Iterate again, to flag unmatched entries'''
 
-    config_obj = literal_eval(config)
+    config_obj = common.parse_config(defaults=DEFAULTS, config=config)
     if not config_obj.get('flag_unmatched'):
         return (entries, [])
 

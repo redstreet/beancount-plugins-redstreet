@@ -191,7 +191,7 @@ the source accounts, making the config below equivalent to the config above:
 Optionally, the plugin can add transaction level or posting level links, tying together
 related transactions or postings. Transaction level links use Beancount's linking
 feature. Beancount does not support posting level links, and thus, these use metadata.
-Both use randomly generated link ids.
+Both use the same sequential link ids.
 
 To use these, see the following options documented at the top of `zerosum.py`:
 - 'match_metadata'

@@ -1,9 +1,12 @@
 option "operating_currency" "USD"
 
 plugin "beancount_reds_plugins.effective_date.effective_date" "{
+ 'holding_accts': {
  'Expenses': {'earlier': 'Liabilities:Hold:Expenses', 'later': 'Assets:Hold:Expenses'},
  'Income':   {'earlier': 'Assets:Hold:Income', 'later': 'Liabilities:Hold:Income'},
- }"
+  },
+  'link_zfill': 2,
+}"
 
 2012-01-01 open Assets:Bank
 2012-01-01 open Liabilities:Mastercard

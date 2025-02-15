@@ -72,9 +72,9 @@ The plugin allows for postings to occur on multiple different dates. For example
 - an `original_date` metadata is inserted into newly created transactions
 - the `effective_date` per-posting metadata is left untouched. This way, the original
   and new entries both have pointers back to each other
-- a beancount link links the transactions set. It's human readable: ^edate-141215-xlu
+- a beancount link links the transactions set. It's human readable: ^edate-141215-9a7
   means the original transaction was on 2014-12-15
 
-See examples.bc for more examples, and for how to configure the plugin with your choice
-of holding accounts.
-
+See `examples.bc` for more examples, and for how to configure the plugin with your choice
+of holding accounts and see `DEFAULT_FORMATS` in `effective_date.py` for how to configure
+the link format.

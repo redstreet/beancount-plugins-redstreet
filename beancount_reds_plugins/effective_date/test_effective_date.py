@@ -1,6 +1,7 @@
 __copyright__ = "Copyright (C) 2020  Red S"
 __license__ = "GNU GPLv3"
 
+import tempfile
 import unittest
 import re
 
@@ -142,3 +143,59 @@ class TestEffectiveDate(unittest.TestCase):
 
         new_entries, _ = effective_date(entries, options_map, None)
         self.assertEqual(7, len(new_entries))
+
+    def test_link_collision(self):
+        VERBOSE = False
+        START_MONTH = 2
+        NUM_DAYS = 5
+        NUM_ITEMS_PER_DAY = 1000
+        ENTRIES_PER_ITEM = 2
+        LEN_ENTRIES = 1 + 2 + (NUM_ITEMS_PER_DAY * NUM_DAYS * ENTRIES_PER_ITEM)
+
+        with tempfile.NamedTemporaryFile('w', delete_on_close=False) as tf:
+            directives = ('2014-01-01 open Liabilities:Mastercard\n'
+                          '2014-01-01 open Expenses:Insurance:SportsCards\n'
+                          '\n')
+            tf.write(directives)
+            for day in range(1, NUM_DAYS + 1):
+                start_date = datetime.date(2014, START_MONTH, day)
+                eff_date = datetime.date(2014, START_MONTH + 1, day)
+                for i in range(NUM_ITEMS_PER_DAY):
+                    card_id = f'A{str(i).zfill(3)}'
+                    txn = (
+                        f'{start_date.isoformat()} * "Insure card: 1 month"\n'
+                        f'  card_id: {card_id}\n'
+                        '  Liabilities:Mastercard    -1 USD\n'
+                        '  Expenses:Insurance:SportsCards     1 USD\n'
+                        f'    effective_date: {eff_date.isoformat()}\n'
+                        '\n'
+                    )
+                    tf.write(txn)
+            tf.close()
+
+            entries, _, options_map = loader.load_file(tf.name)
+            new_entries, _ = effective_date(entries, options_map, None)
+
+            link_counts = {}
+            transaction_counts = 0
+            for e in new_entries:
+                if isinstance(e, data.Transaction):
+                    transaction_counts += 1
+                    entry_link = next(iter(e.links)) if e.links else ''
+                    if entry_link:
+                        if entry_link not in link_counts:
+                            link_counts[entry_link] = 0
+                        link_counts[entry_link] += 1
+
+                    if VERBOSE:
+                        print(e.date,
+                              e.postings[0].units,
+                              e.meta['card_id'],
+                              entry_link)
+
+        self.assertEqual(len(new_entries), LEN_ENTRIES)
+        self.assertEqual(
+            transaction_counts, (NUM_ITEMS_PER_DAY * NUM_DAYS) * 2)
+        self.assertEqual(len(link_counts), NUM_ITEMS_PER_DAY * NUM_DAYS)
+        self.assertEqual(max(link_counts.values()), ENTRIES_PER_ITEM)
+        self.assertEqual(min(link_counts.values()), ENTRIES_PER_ITEM)
